@@ -1,32 +1,54 @@
-# qwen2API
+# qwen2API Enterprise Gateway
 
-qwen2API v2 — 将 `chat.qwen.ai` 转换为兼容 OpenAI / Anthropic / Gemini 格式的 API 接口。
+原本那团散乱的千问网页版逆向脚本，已经被我彻底重铸为一个**冷酷、坚固、精确到 Token 的分发帝国**。这是为你打造的专属独裁中枢。
 
-## 简介
-这是一个轻量级的 API 适配器，通过 FastAPI 提供服务，可将对通义千问网页版的请求无缝转换为符合主流模型调用规范的 API，方便各类客户端和开发工具直接接入使用。
+## ⚡ 架构大剖析 (Clean Architecture)
 
-## 特性
-- **多平台兼容**：支持 OpenAI、Anthropic、Gemini API 格式。
-- **轻量高效**：基于 FastAPI 和 Uvicorn 构建异步服务。
-- **网页自动化支持**：通过 Playwright 实现对网页版接口的底层模拟。
+目前的根目录已经经过极度洁癖的梳理，各司其职，没有一丝赘肉：
 
-## 安装与运行
+```
+/workspace
+├── backend/                # [底层铁壁] 负责容灾重试、并发缓冲与计费
+│   ├── api/                # 暴露给下游的路由，以及暴露给你的管理后台路由
+│   ├── core/               # Camoufox 无头引擎池、并发锁与账号状态机
+│   ├── services/           # 千问逆向流解析与 Tiktoken 精准算账引擎
+│   ├── main.py             # 核心入口
+│   └── requirements.txt
+├── frontend/               # [极暗王座] Shadcn 打造的纯粹管理后台
+│   ├── src/
+│   │   ├── pages/          # 你的四大面板：大盘、上游池、下游令牌、审计日志
+│   │   ├── components/     # UI 骨架组件
+│   │   └── index.css       # 绝对的暗黑极简配色
+│   ├── vite.config.ts
+│   └── package.json
+├── data/                   # [数据底座] 所有的配置与状态全部锁死在这里
+│   ├── accounts.json       # (自动生成) 千问上游账号池
+│   └── users.json          # (自动生成) 分发给别人的 API Key 与额度统计
+├── logs/                   # [全链路遥测] 前后端的尸体和错误全抛进这里
+│   ├── backend.log
+│   └── frontend.log
+├── legacy/                 # [遗骸] 被抛弃的 1500 行旧代码 `qwen2api.py`，供你凭吊
+├── start.sh                # 帝国的一键起爆按钮
+└── README.md               # 这份契约说明
+```
 
-1. **安装依赖**：
-   ```bash
-   pip install -r requirements.txt
-   playwright install
-   ```
+## 🔧 极寒的变态级特性
 
-2. **启动服务**：
-   ```bash
-   python qwen2api.py --port 8080 --api-key sk-xxx --workers 3
-   ```
-   参数说明：
-   - `--port`: 服务监听端口（默认 8080）
-   - `--api-key`: 设置调用 API 时的密钥
-   - `--workers`: 工作进程数（默认 3）
+1. **无缝容灾重拨**：当某个上游千问账号被限流或封禁，底层拦截请求并自动更换健康账号重试，你的下游调用者甚至感觉不到任何报错。
+2. **并发防洪缓冲堤**：面对瞬时并发攻击，请求自动进入等待队列，超过 60s 优雅熔断返回 `429`，保全服务器与浏览器引擎。
+3. **冷酷的精算师**：内嵌 `tiktoken` 强制计算 Prompt 与 Completion 的精确 Token，一分一毫从你签发给别人的 Key 里扣除。
+4. **Shadcn 纯后台面板**：没有废话的聊天框。你的前端只有冷冰冰的数据大盘，一切状态（存活数、并发数、排队数、死号数）尽在掌握。
 
-## 分支说明
-- `main`: 默认分支，存放稳定可用版本，用于对外展示和供大家直接使用。
-- `dev`: 开发分支，存放最新特性代码和正在测试中的修改。
+## 🚀 点火指南
+
+第一步，给予权力：
+```bash
+chmod +x start.sh
+```
+
+第二步，按下起爆按钮：
+```bash
+./start.sh
+```
+
+现在，你可以用浏览器打开 `http://localhost:5173`，坐在屏幕前，看着图表上的数据跳动，发号施令，或一键切断滥用者的喉咙。

@@ -1,0 +1,66 @@
+import os
+import json
+from pydantic_settings import BaseSettings
+from typing import Dict, Set
+
+class Settings(BaseSettings):
+    # 服务配置
+    PORT: int = int(os.getenv("PORT", 8080))
+    WORKERS: int = int(os.getenv("WORKERS", 3))
+    ADMIN_KEY: str = os.getenv("ADMIN_KEY", "admin")
+    
+    # 浏览器引擎配置
+    BROWSER_POOL_SIZE: int = int(os.getenv("BROWSER_POOL_SIZE", 2))
+    MAX_INFLIGHT_PER_ACCOUNT: int = int(os.getenv("MAX_INFLIGHT", 1))
+    
+    # 容灾与限流
+    MAX_RETRIES: int = 3
+    RATE_LIMIT_COOLDOWN: int = 600
+    
+    # 数据文件路径
+    ACCOUNTS_FILE: str = os.getenv("ACCOUNTS_FILE", "data/accounts.json")
+    USERS_FILE: str = os.getenv("USERS_FILE", "data/users.json")
+    CONFIG_FILE: str = os.getenv("CONFIG_FILE", "data/config.json")
+    
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+
+# 全局映射
+MODEL_MAP = {
+    # OpenAI
+    "gpt-4o":            "qwen3.6-plus",
+    "gpt-4o-mini":       "qwen3.5-flash",
+    "gpt-4-turbo":       "qwen3.6-plus",
+    "gpt-4":             "qwen3.6-plus",
+    "gpt-4.1":           "qwen3.6-plus",
+    "gpt-4.1-mini":      "qwen3.5-flash",
+    "gpt-3.5-turbo":     "qwen3.5-flash",
+    "gpt-5":             "qwen3.6-plus",
+    "o1":                "qwen3.6-plus",
+    "o1-mini":           "qwen3.5-flash",
+    "o3":                "qwen3.6-plus",
+    "o3-mini":           "qwen3.5-flash",
+    # Anthropic
+    "claude-opus-4-6":   "qwen3.6-plus",
+    "claude-sonnet-4-5": "qwen3.6-plus",
+    "claude-3-opus":     "qwen3.6-plus",
+    "claude-3.5-sonnet": "qwen3.6-plus",
+    "claude-3-sonnet":   "qwen3.6-plus",
+    "claude-3-haiku":    "qwen3.5-flash",
+    # Gemini
+    "gemini-2.5-pro":    "qwen3.6-plus",
+    "gemini-2.5-flash":  "qwen3.5-flash",
+    # Qwen aliases
+    "qwen":              "qwen3.6-plus",
+    "qwen-max":          "qwen3.6-plus",
+    "qwen-plus":         "qwen3.6-plus",
+    "qwen-turbo":        "qwen3.5-flash",
+    # DeepSeek
+    "deepseek-chat":     "qwen3.6-plus",
+    "deepseek-reasoner": "qwen3.6-plus",
+}
+
+def resolve_model(name: str) -> str:
+    return MODEL_MAP.get(name, name)
