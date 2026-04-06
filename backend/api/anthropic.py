@@ -6,6 +6,7 @@ import asyncio
 from backend.services.qwen_client import QwenClient
 from backend.services.token_calc import calculate_usage
 from backend.services.prompt_builder import build_prompt_with_tools
+from backend.services.tool_sieve import ToolSieve
 from backend.core.config import resolve_model
 
 log = logging.getLogger("qwen2api.anthropic")
@@ -79,31 +80,82 @@ async def anthropic_messages(request: Request):
         
     async def generate():
         full_text = ""
+        sieve = ToolSieve()
+        
+        # 预计算输入 token
+        input_usage = calculate_usage(content, "")["prompt_tokens"]
+        
         try:
             # 初始 MessageStart
             start_event = {
                 "type": "message_start",
-                "message": {"id": "msg_123", "type": "message", "role": "assistant", "model": model, "content": []}
+                "message": {
+                    "id": "msg_123", 
+                    "type": "message", 
+                    "role": "assistant", 
+                    "model": model, 
+                    "content": [],
+                    "usage": {"input_tokens": input_usage, "output_tokens": 0}
+                }
             }
             yield f"event: message_start\ndata: {json.dumps(start_event)}\n\n"
             
+            import uuid
             for evt in events:
                 if evt.get("type") == "delta":
                     text = evt.get("content", "")
-                    full_text += text
-                    chunk = {
-                        "type": "content_block_delta",
-                        "index": 0,
-                        "delta": {"type": "text_delta", "text": text}
-                    }
-                    yield f"event: content_block_delta\ndata: {json.dumps(chunk)}\n\n"
+                    safe_text, tool_calls = sieve.process_delta(text)
+                    full_text += safe_text
+                    
+                    if safe_text:
+                        chunk = {
+                            "type": "content_block_delta",
+                            "index": 0,
+                            "delta": {"type": "text_delta", "text": safe_text}
+                        }
+                        yield f"event: content_block_delta\ndata: {json.dumps(chunk)}\n\n"
+                        
+                    for tc in tool_calls:
+                        log.info(f"[Anthropic] Tool Call Emitted: {tc.get('name')} with args: {tc.get('input')}")
+                        # 发送 tool_use start
+                        yield f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': 1, 'content_block': {'type': 'tool_use', 'id': f'toolu_{uuid.uuid4().hex[:8]}', 'name': tc.get('name', ''), 'input': {}}})}\n\n"
+                        # 发送 input_json delta
+                        yield f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': 1, 'delta': {'type': 'input_json_delta', 'partial_json': json.dumps(tc.get('input', {}), ensure_ascii=False)}})}\n\n"
+                        # 发送 content_block_stop
+                        yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': 1})}\n\n"
+            
+            # flush 残余文本
+            safe_text, tool_calls = sieve.flush()
+            full_text += safe_text
+            if safe_text:
+                chunk = {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": safe_text}
+                }
+                yield f"event: content_block_delta\ndata: {json.dumps(chunk)}\n\n"
+                
+            for tc in tool_calls:
+                log.info(f"[Anthropic] Tool Call Emitted (flushed): {tc.get('name')} with args: {tc.get('input')}")
+                yield f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': 1, 'content_block': {'type': 'tool_use', 'id': f'toolu_{uuid.uuid4().hex[:8]}', 'name': tc.get('name', ''), 'input': {}}})}\n\n"
+                yield f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': 1, 'delta': {'type': 'input_json_delta', 'partial_json': json.dumps(tc.get('input', {}), ensure_ascii=False)}})}\n\n"
+                yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': 1})}\n\n"
             
             log.info(f"[Anthropic] Request complete. Generated {len(full_text)} characters.")
-                    
+
             usage = calculate_usage(content, full_text)
-            stop_event = {"type": "message_stop", "amazon-bedrock-invocationMetrics": usage}
-            yield f"event: message_stop\ndata: {json.dumps(stop_event)}\n\n"
             
+            # Anthropic 的 message_delta 要求结构为 input_tokens 和 output_tokens
+            msg_delta = {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": usage["completion_tokens"]}
+            }
+            yield f"event: message_delta\ndata: {json.dumps(msg_delta)}\n\n"
+            
+            stop_event = {"type": "message_stop"}
+            yield f"event: message_stop\ndata: {json.dumps(stop_event)}\n\n"
+
             users = await users_db.get()
             for u in users:
                 if u["id"] == token:
