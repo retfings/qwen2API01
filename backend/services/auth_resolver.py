@@ -369,10 +369,10 @@ async def activate_account(acc: Account) -> bool:
                 pass
 
             # Step 2: Wait for email list to appear, then click the first email
-            log.info(f"[Activate] 等待收件箱加载...")
+            log.info(f"[Activate] 等待收件箱加载并查找历史激活邮件...")
             clicked_email = False
 
-            # Primary: confirmed GPTMail selector
+            # Primary: confirmed GPTMail selector (直接找第一封，因为激活邮件有效期7天，旧的也能用)
             for sel in ['#emailList li:first-child', '#emailList li', '[class*="EmailItem"]',
                         '[class*="email-item"]', '[class*="MailItem"]', '[class*="mail-item"]',
                         'table tbody tr:first-child', '[role="row"]:first-child']:
@@ -381,11 +381,14 @@ async def activate_account(acc: Account) -> bool:
                     await page.wait_for_selector(sel, timeout=3000)
                     el = await page.query_selector(sel)
                     if el:
-                        await el.click()
-                        await asyncio.sleep(1)
-                        clicked_email = True
-                        log.debug(f"[Activate] 点击邮件项: {sel}")
-                        break
+                        # 额外判断一下文本是否包含 qwen 相关信息，避免点错垃圾邮件
+                        text = await el.inner_text()
+                        if any(kw in text.lower() for kw in keywords):
+                            await el.click()
+                            await asyncio.sleep(1)
+                            clicked_email = True
+                            log.debug(f"[Activate] 点击包含关键字的邮件项: {sel}")
+                            break
                 except Exception:
                     pass
 
