@@ -18,14 +18,7 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://chat.qwen.ai"
 
-def _new_browser():
-    return AsyncCamoufox(
-        headless=True,
-        enable_cache=True,
-        block_images=True,
-        i_know_what_im_doing=True,
-        os=["windows"]
-    )
+from backend.core.browser_engine import _new_browser
 
 async def get_fresh_token(email: str, password: str) -> str:
     """如果提供了此功能，用 playwright 重新登录获取 Token，这里提供一个 mock 或抛错以防未实现"""
@@ -551,7 +544,10 @@ class AuthResolver:
         try:
             async with _new_browser() as browser:
                 page = await browser.new_page()
-                await page.goto("https://chat.qwen.ai/auth", wait_until="domcontentloaded", timeout=30000)
+                try:
+                    await page.goto("https://chat.qwen.ai/auth", wait_until="domcontentloaded", timeout=30000)
+                except Exception:
+                    pass
                 await asyncio.sleep(3)
                 
                 # 填写邮箱密码

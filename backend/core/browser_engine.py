@@ -61,9 +61,6 @@ _CAMOUFOX_OPTS = {
     "headless": True,
     "humanize": False,
     "i_know_what_im_doing": True,
-    "enable_cache": True,
-    "block_images": True,
-    "os": ["windows"],
     "firefox_user_prefs": {
         "layers.acceleration.disabled": True,
         "gfx.webrender.enabled": False,
