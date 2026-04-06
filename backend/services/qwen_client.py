@@ -39,6 +39,36 @@ class QwenClient:
     async def delete_chat(self, token: str, chat_id: str):
         await self.engine.api_call("DELETE", f"/api/v2/chats/{chat_id}", token)
 
+    async def verify_account(self, acc: Account) -> bool:
+        """Verify token validity via direct HTTP (no browser page needed)."""
+        if not acc.token:
+            return False
+            
+        try:
+            import httpx
+            # 这里的 BASE_URL 是写死的，我们可以在这直接引入
+            from backend.services.auth_resolver import BASE_URL
+            
+            async with httpx.AsyncClient(timeout=15, trust_env=False) as hc:
+                resp = await hc.get(
+                    f"{BASE_URL}/api/v1/auths/",
+                    headers={"Authorization": f"Bearer {acc.token}"},
+                )
+            if resp.status_code != 200:
+                log.warning(f"[Verify] Account {acc.email} HTTP {resp.status_code}")
+                return False
+                
+            data = resp.json()
+            is_valid = data.get("role") == "user"
+            
+            if not is_valid:
+                log.warning(f"[Verify] Account {acc.email} is NOT a valid user. Data: {data}")
+                
+            return is_valid
+        except Exception as e:
+            log.warning(f"[Verify] Account {acc.email} HTTP error: {e}")
+            return False
+
     def _build_payload(self, chat_id: str, model: str, content: str) -> dict:
         ts = int(time.time())
         return {
