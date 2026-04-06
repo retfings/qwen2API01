@@ -381,14 +381,13 @@ async def activate_account(acc: Account) -> bool:
                     await page.wait_for_selector(sel, timeout=3000)
                     el = await page.query_selector(sel)
                     if el:
-                        # 额外判断一下文本是否包含 qwen 相关信息，避免点错垃圾邮件
-                        text = await el.inner_text()
-                        if any(kw in text.lower() for kw in keywords):
-                            await el.click()
-                            await asyncio.sleep(1)
-                            clicked_email = True
-                            log.debug(f"[Activate] 点击包含关键字的邮件项: {sel}")
-                            break
+                        # 还原为单文件最原始的逻辑：只要找到了列表项，不管三七二十一先点进去再说
+                        # 不再做外层的 qwen 文本校验，以免因为页面层级复杂而漏判
+                        await el.click()
+                        await asyncio.sleep(2)
+                        clicked_email = True
+                        log.debug(f"[Activate] 点击邮件项 (复原单文件无条件点击策略): {sel}")
+                        break
                 except Exception:
                     pass
 
