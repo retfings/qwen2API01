@@ -39,7 +39,7 @@ def check_and_install_dependencies():
         subprocess.check_call(
             [python_exec, "-m", "camoufox", "fetch"],
             cwd=WORKSPACE_DIR,
-            stdout=subprocess.DEVNULL,
+            stdout=None, # 将输出打印到终端，暴露详细报错
             stderr=subprocess.STDOUT
         )
     except Exception as e:
