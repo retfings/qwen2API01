@@ -16,6 +16,25 @@ class PreprocessedAttachments:
 
 
 async def preprocess_attachments(payload: dict[str, Any], file_store) -> PreprocessedAttachments:
+    messages = payload.get("messages", [])
+    has_inline_image = False
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if block.get("type") != "image_url":
+                continue
+            image_url = block.get("image_url") or {}
+            if isinstance(image_url, dict) and str(image_url.get("url") or "").strip().startswith("data:"):
+                has_inline_image = True
+                break
+        if has_inline_image:
+            break
+
+    if not has_inline_image:
+        return PreprocessedAttachments(payload=payload)
+
     rewritten = copy.deepcopy(payload)
     attachments: list[NormalizedAttachment] = []
     uploaded_file_ids: list[str] = []

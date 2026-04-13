@@ -259,7 +259,6 @@ async def collect_completion_run(
     raw_events: list[dict[str, Any]] = []
     metrics = StreamMetrics()
     first_event_marked = False
-    first_event_marked = False
 
     async for item in client.chat_stream_events_with_retry(
         request.resolved_model,

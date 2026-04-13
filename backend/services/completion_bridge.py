@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from backend.adapter.standard_request import StandardRequest
-from backend.runtime.execution import cleanup_runtime_resources, collect_completion_run, run_runtime_attempt
+from backend.runtime.execution import cleanup_runtime_resources, collect_completion_run, evaluate_retry_directive
 from backend.services.auth_quota import add_used_tokens
 from backend.services.token_calc import calculate_usage
 
@@ -56,23 +56,27 @@ async def run_retryable_completion_bridge(
     on_delta: Callable[[dict[str, Any], str | None, list[dict[str, Any]] | None], Awaitable[None]] | None = None,
 ) -> CompletionBridgeResult:
     current_prompt = prompt
-    last_error: Exception | None = None
 
     for attempt_index in range(max_attempts):
-        outcome = await run_runtime_attempt(
-            client=client,
+        execution = await collect_completion_run(
+            client,
+            standard_request,
+            current_prompt,
+            capture_events=capture_events,
+            on_delta=on_delta,
+        )
+        retry = evaluate_retry_directive(
             request=standard_request,
             current_prompt=current_prompt,
             history_messages=history_messages,
             attempt_index=attempt_index,
             max_attempts=max_attempts,
+            state=execution.state,
             allow_after_visible_output=allow_after_visible_output,
-            capture_events=capture_events,
-            on_delta=on_delta,
         )
-        execution = outcome.execution
-        if outcome.continuation.should_continue:
-            current_prompt = outcome.continuation.next_prompt
+        if retry.retry:
+            await cleanup_runtime_resources(client, execution.acc, execution.chat_id)
+            current_prompt = retry.next_prompt
             continue
 
         usage = calculate_usage(current_prompt, execution.state.answer_text)
@@ -86,6 +90,4 @@ async def run_retryable_completion_bridge(
             attempt_index=attempt_index,
         )
 
-    if last_error is not None:
-        raise last_error
     raise RuntimeError("Retryable completion bridge exhausted attempts")
