@@ -10,7 +10,6 @@ from typing import Any, Awaitable, Callable
 from backend.adapter.standard_request import StandardRequest
 from backend.core.config import settings
 from backend.core.request_logging import update_request_context
-from backend.runtime.stream_metrics import StreamMetrics
 from backend.services import tool_parser
 from backend.toolcall.normalize import normalize_tool_name
 from backend.toolcall.stream_state import StreamingToolCallState
@@ -27,7 +26,6 @@ class RuntimeAttemptState:
     finish_reason: str = "stop"
     raw_events: list[dict[str, Any]] = field(default_factory=list)
     emitted_visible_output: bool = False
-    stage_metrics: dict[str, float] = field(default_factory=dict)
     first_answer_preview: str = ""
     first_reasoning_preview: str = ""
     first_tool_call_preview: str = ""
@@ -119,10 +117,10 @@ __all__ = [
     "anthropic_stream_usage_delta",
     "build_retry_loop",
     "build_tool_directive",
+    "build_usage_delta_factory",
     "begin_runtime_attempt",
     "cleanup_runtime_resources",
     "collect_completion_run",
-    "continue_after_retry_directive",
     "evaluate_retry_directive",
     "extract_blocked_tool_names",
     "finalize_anthropic_stream_success",
@@ -134,7 +132,6 @@ __all__ = [
     "parse_tool_directive_once",
     "plan_runtime_attempts",
     "recent_same_tool_identity_count",
-    "retryable_usage_delta",
     "should_force_finish_after_tool_use",
     "tool_identity",
 ]
@@ -273,7 +270,6 @@ async def collect_completion_run(
     tool_state = StreamingToolCallState()
     emitted_visible_output = False
     raw_events: list[dict[str, Any]] = []
-    metrics = StreamMetrics()
     first_event_marked = False
 
     async for item in client.chat_stream_events_with_retry(
@@ -285,7 +281,6 @@ async def collect_completion_run(
             chat_id = item.get("chat_id")
             acc = item.get("acc")
             update_request_context(chat_id=chat_id)
-            metrics.mark("chat_created", float(len(raw_events)))
             continue
         if item.get("type") != "event":
             continue
@@ -307,7 +302,6 @@ async def collect_completion_run(
                     log.info("[Runtime] first_reasoning_delta=%r", first_reasoning_preview)
             emitted_visible_output = True
             if not first_event_marked:
-                metrics.mark("first_event", float(len(raw_events)))
                 first_event_marked = True
             if on_delta is not None:
                 await on_delta(evt, content, None)
@@ -321,7 +315,6 @@ async def collect_completion_run(
                     log.info("[Runtime] first_answer_delta=%r", first_answer_preview)
             emitted_visible_output = True
             if not first_event_marked:
-                metrics.mark("first_event", float(len(raw_events)))
                 first_event_marked = True
             if on_delta is not None:
                 await on_delta(evt, content, None)
@@ -330,7 +323,6 @@ async def collect_completion_run(
         if phase == "tool_call":
             emitted_visible_output = True
             if not first_event_marked:
-                metrics.mark("first_event", float(len(raw_events)))
                 first_event_marked = True
             completed_calls = tool_state.process_event(evt)
             if completed_calls:
@@ -355,7 +347,6 @@ async def collect_completion_run(
         finish_reason="tool_calls" if native_tool_calls else "stop",
         raw_events=raw_events,
         emitted_visible_output=emitted_visible_output,
-        stage_metrics=metrics.summary(),
         first_answer_preview=first_answer_preview,
         first_reasoning_preview=first_reasoning_preview,
         first_tool_call_preview=first_tool_call_preview,
@@ -420,7 +411,8 @@ def anthropic_stream_usage_delta(prompt: str, answer_text: str) -> int:
 
 
 def anthropic_stream_stop_reason(request: StandardRequest, state: RuntimeAttemptState, pending_chunks: list[str], directive: RuntimeToolDirective | None = None) -> str:
-    if state.tool_calls or any('"type": "tool_use"' in chunk for chunk in pending_chunks):
+    del pending_chunks
+    if state.tool_calls:
         return "tool_use"
     resolved_directive = directive or build_tool_directive(request, state)
     return resolved_directive.stop_reason
@@ -459,7 +451,7 @@ def inject_assistant_message(prompt: str, message: str) -> str:
     return next_prompt + "\n\n" + message + "\nAssistant:"
 
 
-def retryable_usage_delta(prompt: str):
+def build_usage_delta_factory(prompt: str) -> Callable[[RuntimeExecutionResult, Any | None], int]:
     return lambda execution, _=None: len(execution.state.answer_text) + len(prompt)
 
 

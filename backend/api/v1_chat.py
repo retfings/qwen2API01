@@ -16,7 +16,7 @@ from backend.services.prompt_builder import messages_to_prompt
 from backend.services.response_formatters import build_openai_completion_payload
 from backend.services.qwen_client import QwenClient
 from backend.toolcall.normalize import build_tool_name_registry
-from backend.runtime.execution import RuntimeAttemptState, build_tool_directive, retryable_usage_delta
+from backend.runtime.execution import RuntimeAttemptState, build_tool_directive, build_usage_delta_factory
 
 log = logging.getLogger("qwen2api.chat")
 router = APIRouter()
@@ -113,7 +113,7 @@ async def chat_completions(request: Request):
                         token=token,
                         history_messages=history_messages,
                         max_attempts=settings.MAX_RETRIES + (1 if standard_request.tools else 0),
-                        usage_delta_factory=retryable_usage_delta(prompt),
+                        usage_delta_factory=build_usage_delta_factory(prompt),
                         allow_after_visible_output=False,
                         capture_events=False,
                         on_delta=delta_handler,
@@ -146,7 +146,7 @@ async def chat_completions(request: Request):
                 token=token,
                 history_messages=history_messages,
                 max_attempts=settings.MAX_RETRIES + (1 if standard_request.tools else 0),
-                usage_delta_factory=retryable_usage_delta(prompt),
+                usage_delta_factory=build_usage_delta_factory(prompt),
                 allow_after_visible_output=False,
             )
             execution = result.execution
