@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from backend.core.config import settings
 from backend.core.database import AsyncJsonDB
 from backend.core.account_pool import AccountPool, Account
+import secrets
 
 router = APIRouter()
 
@@ -252,3 +253,21 @@ async def update_settings(data: dict):
 async def get_keys():
     from backend.core.config import API_KEYS
     return {"keys": list(API_KEYS)}
+
+@router.post("/keys", dependencies=[Depends(verify_admin)])
+async def create_key():
+    from backend.core.config import API_KEYS, save_api_keys
+
+    new_key = f"sk-{secrets.token_hex(24)}"
+    API_KEYS.add(new_key)
+    save_api_keys(API_KEYS)
+    return {"ok": True, "key": new_key}
+
+@router.delete("/keys/{key}", dependencies=[Depends(verify_admin)])
+async def delete_key(key: str):
+    from backend.core.config import API_KEYS, save_api_keys
+
+    if key in API_KEYS:
+        API_KEYS.remove(key)
+        save_api_keys(API_KEYS)
+    return {"ok": True}
