@@ -355,6 +355,33 @@ async def collect_completion_run(
     raw_events: list[dict[str, Any]] = []
     metrics = StreamMetrics()
 
+    def _finalize_result(*, reason: str | None = None) -> RuntimeExecutionResult:
+        answer_text = "".join(answer_fragments)
+        reasoning_text = "".join(reasoning_fragments)
+        if native_tool_calls and not answer_text:
+            answer_text = native_tool_calls_to_markup(native_tool_calls)
+        if reason:
+            log.info(
+                "[Collect] finalize reason=%s chat_id=%s tool_calls=%s answer_chars=%s reasoning_chars=%s",
+                reason,
+                chat_id,
+                len(native_tool_calls),
+                len(answer_text),
+                len(reasoning_text),
+            )
+        metrics.mark("stream_finish", float(len(raw_events)))
+        state = RuntimeAttemptState(
+            answer_text=answer_text,
+            reasoning_text=reasoning_text,
+            tool_calls=native_tool_calls,
+            blocked_tool_names=extract_blocked_tool_names(answer_text.strip(), request.tool_names),
+            finish_reason="tool_calls" if native_tool_calls else "stop",
+            raw_events=raw_events,
+            emitted_visible_output=emitted_visible_output,
+            stage_metrics=metrics.summary(),
+        )
+        return RuntimeExecutionResult(state=state, chat_id=chat_id, acc=acc)
+
     async for item in client.chat_stream_events_with_retry(
         request.resolved_model,
         prompt,
@@ -396,6 +423,17 @@ async def collect_completion_run(
                 first_event_marked = True
             if on_delta is not None:
                 await on_delta(evt, content, None)
+            if request.tools:
+                answer_text = "".join(answer_fragments)
+                blocked_tool_names = extract_blocked_tool_names(answer_text.strip(), request.tool_names)
+                if blocked_tool_names:
+                    return _finalize_result(reason=f"blocked_tool_name:{blocked_tool_names[0]}")
+                directive = parse_tool_directive_once(
+                    request,
+                    RuntimeAttemptState(answer_text=answer_text, reasoning_text="".join(reasoning_fragments)),
+                )
+                if directive.stop_reason == "tool_use":
+                    return _finalize_result(reason="textual_tool_use")
             continue
 
         if phase == "tool_call":
@@ -408,24 +446,9 @@ async def collect_completion_run(
                 native_tool_calls.extend(completed_calls)
                 if on_delta is not None:
                     await on_delta(evt, None, completed_calls)
+                return _finalize_result(reason="native_tool_use")
 
-    answer_text = "".join(answer_fragments)
-    reasoning_text = "".join(reasoning_fragments)
-    if native_tool_calls and not answer_text:
-        answer_text = native_tool_calls_to_markup(native_tool_calls)
-
-    metrics.mark("stream_finish", float(len(raw_events)))
-    state = RuntimeAttemptState(
-        answer_text=answer_text,
-        reasoning_text=reasoning_text,
-        tool_calls=native_tool_calls,
-        blocked_tool_names=extract_blocked_tool_names(answer_text.strip(), request.tool_names),
-        finish_reason="tool_calls" if native_tool_calls else "stop",
-        raw_events=raw_events,
-        emitted_visible_output=emitted_visible_output,
-        stage_metrics=metrics.summary(),
-    )
-    return RuntimeExecutionResult(state=state, chat_id=chat_id, acc=acc)
+    return _finalize_result(reason="stream_end")
 
 
 def parse_tool_directive_once(request: StandardRequest, state: RuntimeAttemptState) -> RuntimeToolDirective:

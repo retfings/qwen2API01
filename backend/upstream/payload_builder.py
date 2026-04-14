@@ -19,7 +19,11 @@ def build_chat_payload(chat_id: str, model: str, content: str, has_custom_tools:
     ts = int(time.time())
     feature_config = {
         **CUSTOM_TOOL_COMPAT_FEATURE_CONFIG,
-        "function_calling": has_custom_tools,
+        # Our Anthropic/OpenAI bridge relies on textual JSON/XML tool directives
+        # that are parsed locally. Enabling Qwen native function_calling here causes
+        # upstream interception such as `Tool Read/Bash does not exists.` for custom
+        # local tools that only exist in the bridge layer.
+        "function_calling": False,
     }
     return {
         "stream": True,
