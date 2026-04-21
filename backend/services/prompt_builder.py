@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from backend.adapter.standard_request import CLAUDE_CODE_OPENAI_PROFILE, OPENCLAW_OPENAI_PROFILE
 from backend.core.request_logging import get_request_context
 from backend.services import file_content_cache
+from backend.services.client_profiles import (
+    QWEN_CODE_OPENAI_PROFILE,
+    looks_like_opencode_system_prompt as _looks_like_opencode_system_prompt,
+    sanitize_openclaw_user_text,
+)
 from backend.services.refusal_cleaner import clean_refusal_messages
 from backend.services.schema_compressor import compact_schema
 from backend.services.tool_few_shot import pick_few_shot_tools, render_few_shot_turn, tool_summary_for_log
@@ -26,6 +31,10 @@ class PromptBuildResult:
     prompt: str
     tools: list[dict]
     tool_enabled: bool
+
+
+def _is_heavy_tool_profile(client_profile: str) -> bool:
+    return client_profile in {CLAUDE_CODE_OPENAI_PROFILE, QWEN_CODE_OPENAI_PROFILE}
 
 
 def _compact_history_tool_input(name: str, input_data: dict, client_profile: str) -> dict:
@@ -840,10 +849,11 @@ def _apply_topic_isolation(messages: list, client_profile: str) -> list:
 
 
 def messages_to_prompt(req_data: dict, *, client_profile: str = OPENCLAW_OPENAI_PROFILE) -> PromptBuildResult:
+    resolved_client_profile = client_profile
     raw_messages = req_data.get("messages", [])
     # 话题隔离：新任务与历史首条 user 实体零重合时，丢弃所有历史，只保留 system + 最新 user。
     # 这解决 Claude Code 同 session 多任务时旧对话干扰新任务的问题。
-    isolated = _apply_topic_isolation(raw_messages, client_profile)
+    isolated = _apply_topic_isolation(raw_messages, resolved_client_profile)
     # Pass: 历史拒绝清洗
     cleaned_messages, cleaned_count = clean_refusal_messages(isolated)
     if cleaned_count:
